@@ -7,7 +7,7 @@ from haystack.components.writers import DocumentWriter
 from pathlib import Path
 from haystack.document_stores.types import DuplicatePolicy
 from haystack.utils import Secret
-from haystack_integrations.components.converters.unstructured import UnstructuredFileConverter
+# from haystack_integrations.components.converters.unstructured import UnstructuredFileConverter
 from haystack.components.fetchers import LinkContentFetcher
 from haystack.components.converters import HTMLToDocument
 from haystack.document_stores.in_memory import InMemoryDocumentStore 
@@ -92,7 +92,6 @@ class JSONLReader():
                     url = data.get(self.link_keyword)
                     if url and '-index.html' in url:
                         url = url.replace('-index.html', '.txt')
-
                     else:
                         metadata = {field: data.get(field) for field in self.metadata_fields if field in data}
                         # Assume a pipeline fetches and processes this URL
@@ -119,10 +118,13 @@ class JSONLReader():
             raise ValueError(f"Unsupported source type: {type(source)}")
 
 def build_indexing_pipeline(document_store):
+    # OpenAI model for embedding
+    embed_model = "text-embedding-3-small"
 
     document_splitter = DocumentSplitter(split_by="passage")
-                                                                    
-    document_embedder = OpenAIDocumentEmbedder(api_key=Secret.from_token(open_ai_key))
+
+    document_embedder = OpenAIDocumentEmbedder(model=embed_model)                                                                
+    # document_embedder = OpenAIDocumentEmbedder(api_key=Secret.from_token(open_ai_key))
 
     document_writer = DocumentWriter(document_store=document_store)
 
@@ -147,19 +149,22 @@ def build_retriever_pipeline(document_store, open_ai_key):
     
     :return: Pipeline for retrieving documents.
     """
+    # OpenAI model for embedding
+    embed_model = "text-embedding-3-small"
 
-    text_embedder = OpenAITextEmbedder(api_key = Secret.from_token(open_ai_key))
+    text_embedder = OpenAITextEmbedder(model=embed_model)
+    # text_embedder = OpenAITextEmbedder(api_key = Secret.from_token(open_ai_key))
     retriever = InMemoryEmbeddingRetriever(document_store)
     generator = OpenAIGenerator(api_key = Secret.from_token(open_ai_key), 
-        model="gpt-3.5-turbo")
+        model="gpt-4o-mini")
 
     template = """
     Your task is to generate a comprehensive report using the context provided, 
-    answering the question below.
+    answering the question below. Skip any content about Benzinga from your report.
 
     Context:
     {% for document in documents %}
-        {{ document.content }} symbols: {{ doc.meta['symbols'] }}
+        {{ document.content }} symbols: {{ document.meta['symbols'] }}
     {% endfor %}
 
     Question: {{question}}

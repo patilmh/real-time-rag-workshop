@@ -4,8 +4,8 @@ from haystack.components.preprocessors import DocumentCleaner
 from pathlib import Path
 from haystack.utils import Secret
 
-
 from unstructured_component import UnstructuredParser
+from parser_component import CustomParser
 import logging
 import requests
 from haystack import component, Document
@@ -24,8 +24,7 @@ unstructured = os.environ.get("UNSTRUCTURED")
 
 AZURE_OPENAI_KEY = os.getenv('AZURE_OPENAI_API_KEY')
 AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_ENDPOINT')
-AZURE_OPENAI_SERVICE = os.getenv('AZURE_OPENAI_SERVICE')
-AZURE_OPENAI_EMBEDDING_SERVICE= os.getenv('AZURE_OPENAI_EMBEDDING_SERVICE')
+AZURE_OPENAI_EMBEDDING_MODEL = os.getenv('AZURE_OPENAI_EMBEDDING_MODEL')
 
 search_api_key = os.getenv("AZURE_SEARCH_ADMIN_KEY")
 
@@ -65,6 +64,7 @@ def safe_deserialize(data):
         if isinstance(parsed_data, list):
             if len(parsed_data) == 2 and (parsed_data[0] is None or isinstance(parsed_data[0], str)):
                 event = parsed_data[1]
+                print(f"parsed_data[0]: {parsed_data[0]}")
             else:
                 logger.info(f"Skipping unexpected list format: {data}")
                 return None
@@ -74,6 +74,7 @@ def safe_deserialize(data):
             logger.info(f"Skipping unexpected data type: {data}")
             return None
         
+        # print(f"event: {event}")
         if 'link' in event:
             event['url'] = event.pop('link')
         
@@ -92,18 +93,16 @@ def safe_deserialize(data):
 
 
 class JSONLReader:
-    def __init__(self, metadata_fields=None):
+    def __init__(self, download_needed=False, metadata_fields=None):
         """
         Initialize the JSONLReader with optional metadata fields and a link keyword.
         
+        :param download_needed: Will the flow need to download data using HTTP
         :param metadata_fields: List of fields in the JSONL to retain as metadata.
         """
+        self.download_needed = download_needed
         self.metadata_fields = metadata_fields or []
         
-        unstructured_parser = UnstructuredParser(unstructured_key=unstructured_api_key,
-                                          chunking_strategy="by_page",
-                                          strategy="auto",
-                                          model="yolox")
         regex_pattern = (
             r'<.*?>'  # HTML tags
             r'|\t'  # Tabs
@@ -121,20 +120,30 @@ class JSONLReader:
 
         document_embedder = AzureOpenAIDocumentEmbedder(azure_endpoint=AZURE_OPENAI_ENDPOINT,
                                                                 api_key=Secret.from_token(AZURE_OPENAI_KEY),
-                                                                azure_deployment=AZURE_OPENAI_EMBEDDING_SERVICE) 
+                                                                azure_deployment=AZURE_OPENAI_EMBEDDING_MODEL) 
 
-
-        # Initialize pipeline
+        # Initialize Haystack pipeline
         self.pipeline = Pipeline()
 
         # Add components
-        self.pipeline.add_component("unstructured", unstructured_parser)
+        if(download_needed):
+            # SEC filings have to be downloaded from EDGAR before indexing
+            unstructured_parser = UnstructuredParser(unstructured_key=unstructured_api_key,
+                                            chunking_strategy="by_page",
+                                            strategy="auto",
+                                            model="yolox")
+            self.pipeline.add_component("parser", unstructured_parser)
+        else:
+            custom_parser = CustomParser(download_needed=download_needed)
+            # Alpaca API call gives title, summary, content. So no HTTP download needed.
+            self.pipeline.add_component("parser", custom_parser)
+
         self.pipeline.add_component("cleaner", document_cleaner)
         self.pipeline.add_component("embedder", document_embedder)
 
         # Connect components
-        self.pipeline.connect("unstructured", "cleaner")
-        self.pipeline.connect("cleaner", "embedder")
+        self.pipeline.connect("parser", "cleaner")
+        # self.pipeline.connect("cleaner", "embedder")
 
     @component.output_types(documents=List[Document])
     def run(self, event: List[Union[str, Path, ByteStream]]):
@@ -145,28 +154,33 @@ class JSONLReader:
         :return: A dictionary containing the processed document and the result of writing to Azure Search.
         """
 
+        print(f"type: {type(event)}, event: {event}")
         # Extract URL and modify it if necessary
         url = event.get("url")
         if url and '-index.html' in url:
             url = url.replace('-index.html', '.txt')
 
-        # else:
+        # Extract required metadata fields from the event
         metadata = {field: event.get(field) for field in self.metadata_fields if field in event}
+        
         # Assume a pipeline fetches and processes this URL
         try:
-            doc = self.pipeline.run({"unstructured": {"sources": [url]}})
+            if(self.download_needed):
+                doc = self.pipeline.run({"parser": {"sources": [url]}})
+            else:
+                doc = self.pipeline.run({"parser": {"event": event}})
         except Exception as e:
             logger.error(f"Error running pipeline for URL {url}: {e}")
             raise
+
         document_obj = doc['embedder']['documents'][0]
         content = document_obj.content
-        additional_metadata = document_obj.meta
-
         
         embedding = document_obj.embedding
         # Safely access the embedding metadata
         embedding_metadata = doc.get('embedder', {}).get('meta', {})
-        metadata.update(embedding_metadata) 
+        metadata.update(embedding_metadata)
+        print(f"updated metadata: {metadata}")
         document = Document(id=document_obj.id, content=content, meta=metadata, embedding=embedding)
 
         dictionary = self.document_to_dict(document)

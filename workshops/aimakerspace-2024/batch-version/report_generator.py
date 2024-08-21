@@ -13,17 +13,18 @@ if __name__ == "__main__":
     converter = JSONLReader(metadata_fields=['cik','form_type','link',"url", 'headline', 'symbols'], \
         link_keyword='url')
     documents = converter.run(sources=["./data/news_out.jsonl"])
+    print(documents)
 
     # Data indexing
     document_store = InMemoryDocumentStore(embedding_similarity_function="cosine")
     indexing_pipeline = build_indexing_pipeline(document_store)
-
     indexing_pipeline.run({"splitter": {"documents": documents}})
 
     # Retriever pipeline
     retriever = build_retriever_pipeline(document_store, open_ai_key)
     question = "What can you tell me about the information you have"
     response = retriever.run({"text_embedder": {"text": question}, "prompt_builder": {"question": question}})
+    print(response)
 
 
     

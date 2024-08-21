@@ -20,7 +20,7 @@ load_dotenv(".env")
 @component
 class UnstructuredParser:
     """
-    A component generating personal welcome message and making it upper case
+    A component for fetching, parsing, cleaning contents from source files or URLs
     """
     def __init__(self, unstructured_key: str, chunking_strategy, strategy, model):
         """
@@ -52,11 +52,14 @@ class UnstructuredParser:
         r'|[^a-zA-Z0-9\s-]'  # Any non-alphanumeric character (excluding whitespace)
         )
         
+        # client = UnstructuredClient(api_key_auth=self.unstructured_key, server='free-api')
         client = UnstructuredClient(api_key_auth=self.unstructured_key)
         documents = []
         all_symbols = set()
         for source in sources:
+            print(f"source: {source}")
             file_content = self.download_file(source)
+            # print(f"file_content: {file_content}")
             if file_content:  # Check if download was successful
                 req = shared.PartitionParameters(
                     files=shared.Files(
@@ -104,15 +107,22 @@ class UnstructuredParser:
 
     # Helper function to download file from URL
     def download_file(self, source: Union[str, Path]) -> bytes:
+        # headers = {
+        #     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36',
+        #     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        #     'Accept-Language': 'en-US,en;q=0.5',
+        #     'Accept-Encoding': 'gzip, deflate, br',
+        #     'DNT': '1',
+        #     'Connection': 'keep-alive',
+        #     'Upgrade-Insecure-Requests': '1',
+        # }
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-        }
+            'Host': 'www.sec.gov', 
+            'Connection': 'close',
+            'Accept': 'application/json, text/javascript, */*; q=0.01', 
+            'X-Requested-With': 'XMLHttpRequest',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.163 Safari/537.36',
+         }
         try:
             response = requests.get(source, headers=headers)
             

@@ -1,81 +1,130 @@
-import json
 import os
-from dataclasses import dataclass, field
-from datetime import timedelta
 from typing import List, Dict
 
-import websockets
-from bytewax import operators as op
-from bytewax.connectors.files import FileSink
+## from bytewax import operators as op
+## from bytewax.connectors.files import FileSink
+from bytewax.connectors.files import FileOutput
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import FixedPartitionedSource, StatefulSourcePartition, batch_async
-from bytewax.connectors.kafka import operators as kop
-from bytewax.connectors.kafka import KafkaSinkMessage
+## from bytewax.connectors.kafka import operators as kop
+## from bytewax.connectors.kafka import KafkaSinkMessage
+from bytewax.connectors.kafka import KafkaOutput
 
-API_KEY = os.getenv("API_KEY")
-API_SECRET = os.getenv("API_SECRET")
+
+import json
+import logging
+
+from bytewax.dataflow import Dataflow
+from bytewax.inputs import DynamicInput, StatelessSource
+## from bytewax.inputs import DynamicSource, StatelessSourcePartition
+from websocket import create_connection
+
+API_KEY = os.getenv("ALPACA_API_KEY")
+API_SECRET = os.getenv("ALPACA_SECRET")
 ticker_list = ["*"]
 
-BROKERS = os.getenv("BROKER")
-OUT_TOPIC = os.getenv("TOPIC_NEWS")
+BROKERS = os.getenv("BROKER_ADDRESS")
+OUT_TOPIC = os.getenv("NEWS_TOPIC")
 
-async def news_aggregator(ticker):
-    url = "wss://stream.data.alpaca.markets/v1beta1/news"
-    async with websockets.connect(url) as websocket:
-        await websocket.send(json.dumps({"action": "auth", "key": API_KEY, "secret": API_SECRET}))
-        await websocket.recv()  # Ignore auth response
-        await websocket.send(json.dumps({"action": "subscribe", "news": [ticker]}))
-        await websocket.recv()  # Ignore subscription response
-        await websocket.recv()
+# Creating an object 
+logger=logging.getLogger() 
 
-        while True:
-            message = await websocket.recv()
-            articles = json.loads(message)
-            yield articles
+# Setting the threshold of logger to DEBUG 
+logger.setLevel(logging.DEBUG) 
 
-class NewsPartition(StatefulSourcePartition):
-    def __init__(self, ticker):
-        self.ticker = ticker
-        self.batcher = batch_async(news_aggregator(ticker), timedelta(seconds=0.5), 100)
+# This code is not being used in the Ingestion pipeline
+# Attempted using streaming example code for bytewax==0.17.1 instead of the original code for bytewax==0.19.0
+# because the original streaming code doesn't work. This has been replaced with flow.py, run_batch.py, etc.
 
-    def next_batch(self):
-        return next(self.batcher)
+class AlpacaSource(StatelessSource):
+#class AlpacaSource(StatelessSourcePartition):
+    def __init__(self, worker_tickers):
+        # set the workers tickers
+        self.worker_tickers = worker_tickers
+    
+        # establish a websocket connection to alpaca
+        self.ws = create_connection("wss://stream.data.alpaca.markets/v1beta1/news")
+        logger.info(self.ws.recv())
+        
+        # authenticate to the websocket
+        self.ws.send(
+            json.dumps(
+                {"action":"auth",
+                 "key":f"{API_KEY}",
+                 "secret":f"{API_SECRET}"}
+            )
+        )
+        logger.info(self.ws.recv())
+        
+        # subscribe to the tickers
+        self.ws.send(
+            json.dumps(
+                {"action":"subscribe","news":self.worker_tickers}
+            )
+        )
+        logger.info(self.ws.recv())
 
-    def snapshot(self):
-        return None  # Stateless for now
+    def next(self):
+    #def next_batch(self):
+        return self.ws.recv()
 
-    def close(self):
-        pass  # The async context manager will handle closing the WebSocket.
+class AlpacaNewsInput(DynamicInput):
+#class AlpacaNewsInput(DynamicSource):
+    """Input class to receive streaming news data
+    from the Alpaca real-time news API.
+    
+    Args:
+        tickers: list - should be a list of tickers, use "*" for all
+    """
+    def __init__(self, tickers):
+        self.TICKERS = tickers
+    
+    # distribute the tickers to the workers. If parallelized
+    # workers will establish their own websocket connection and
+    # subscribe to the tickers they are allocated
+    def build(self, worker_index, worker_count):
+    #def build(self, step_id, worker_index, worker_count):
+        prods_per_worker = int(len(self.TICKERS) / worker_count)
+        worker_tickers = self.TICKERS[
+            int(worker_index * prods_per_worker) : int(
+                worker_index * prods_per_worker + prods_per_worker
+            )
+        ]
+        return AlpacaSource(worker_tickers)
 
-@dataclass
-class NewsSource(FixedPartitionedSource):
-    tickers: List[str] = field(default_factory=lambda: ["*"])
+## bytewax version 0.19.0 code attempt
+# flow = Dataflow("news_loader")
+# news_input = op.input("news_input", flow, AlpacaNewsInput(tickers=["*"]))
+# op.inspect("input", news_input)
+# inp = op.flat_map("json_loader", news_input, lambda x: json.loads(x))
 
-    def list_parts(self):
-        return self.tickers
+## bytewax version 0.16.0 code attempt
+flow = Dataflow()
+flow.input("input", AlpacaNewsInput(tickers=["*"]))
+flow.inspect(print)
+flow.flat_map(lambda x: json.loads(x))
 
-    def build_part(self, step_id, for_key, _resume_state):
-        return NewsPartition(for_key)
-
-def process_article(state, article):
-    source, news = article
-    return (source, news['headline'])  # Simplified processing
-
-flow = Dataflow("news_loader")
-inp = op.input("news_input", flow, NewsSource(ticker_list)).then(op.flat_map, "flatten", lambda x: x)
-op.inspect("input", inp)
-
-def serialize_k(news)-> KafkaSinkMessage[Dict, Dict]:
-    return KafkaSinkMessage(
-        key=json.dumps(news['symbols'][0]),
-        value=json.dumps(news),
-    )
+## original code
+# flow = Dataflow("news_loader")
+# inp = op.input("news_input", flow, NewsSource(ticker_list)).then(op.flat_map, "flatten", lambda x: x)
+# op.inspect("input", inp)
 
 def serialize(news):
     return (news['symbols'][0], json.dumps(news))
 
-serialized = op.map("serialize", inp, serialize)
-op.output("output", serialized, FileSink('news_out_2.jsonl'))
+## bytewax version 0.16.0 code attempt
+flow.map(serialize)
+flow.output("output", FileOutput('news_out_2.jsonl'))
+
+# original code for file sink
+# serialized = op.map("serialize", inp, serialize)
+# op.output("output", serialized, FileSink('news_out_2.jsonl'))
+
+# original code for Kafka
+# def serialize_k(news)-> KafkaSinkMessage[Dict, Dict]:
+#     return KafkaSinkMessage(
+#         key=json.dumps(news['symbols'][0]),
+#         value=json.dumps(news),
+#     )
 
 # print(f"Connecting to brokers at: {BROKERS}, Topic: {OUT_TOPIC}")
 
@@ -87,4 +136,7 @@ op.output("output", serialized, FileSink('news_out_2.jsonl'))
 #     "sasl_plain_username":"demo",
 #     "sasl_plain_password":"Qq2EnlzHpzv3RZDAMjZzfZCwrFZyhK"
 #     }
-# kop.output("out1", serialized, brokers=BROKERS, topic=OUT_TOPIC, )
+# kop.output("out1", serialized, brokers=BROKERS, topic=OUT_TOPIC)
+
+# python command
+# python -m bytewax.run news_ingestion.py

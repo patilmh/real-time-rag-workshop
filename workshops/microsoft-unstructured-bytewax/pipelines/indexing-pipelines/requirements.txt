@@ -1,0 +1,11 @@
+azure-ai-documentintelligence
+unstructured-client
+azure-ai-formrecognizer
+azure-search-documents
+markdownify
+haystack-ai
+unstructured-fileconverter-haystack
+bytewax==0.19
+pandas==2.2.2
+requests==2.31.0
+python-dotenv

@@ -1,2 +1,4 @@
 haystack-ai
 bytewax==0.19
+python-dotenv
+trafilatura

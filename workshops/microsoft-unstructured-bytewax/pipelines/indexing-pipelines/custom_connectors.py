@@ -79,10 +79,11 @@ class _AzureSearchPartition(StatelessSinkPartition[Any]):
     def write_batch(self, dictionary) -> None:
         index_name = "bytewax-index"
         search_api_version = '2023-11-01'
-        search_endpoint = f'https://bytewax-workshop.search.windows.net/indexes/{index_name}/docs/index?api-version={search_api_version}'  
+        azure_search_service = os.getenv("AZURE_SEARCH_SERVICE")
+        search_endpoint = f'https://{azure_search_service}.search.windows.net/indexes/{index_name}/docs/index?api-version={search_api_version}'  
         headers = {  
-            'Content-Type': 'application/json',  
-            'api-key': search_api_key  
+            'Content-Type': 'application/json',
+            'api-key': search_api_key
         }  
 
         dictionary = dictionary[0]

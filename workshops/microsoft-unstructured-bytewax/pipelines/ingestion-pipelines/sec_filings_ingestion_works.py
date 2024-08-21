@@ -3,22 +3,24 @@ from datetime import timedelta
 import re
 import xml.etree.ElementTree as ET
 import json
-# from typing import Dict
+from typing import Dict
 
 from pandas import read_json
 import requests
-from bytewax import operators as op
-from bytewax.connectors.files import FileSink
+## from bytewax import operators as op
+## from bytewax.connectors.files import FileSink
+from bytewax.connectors.files import FileOutput
 from bytewax.dataflow import Dataflow
-from bytewax.inputs import SimplePollingSource
-# from bytewax.connectors.kafka import operators as kop
-# from bytewax.connectors.kafka import KafkaSinkMessage
+from bytewax.connectors.periodic import SimplePollingInput
+## from bytewax.inputs import SimplePollingSource
+## from bytewax.connectors.kafka import operators as kop
+## from bytewax.connectors.kafka import KafkaSinkMessage
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Poll SEC with GET request every few seconds
-class SECSource(SimplePollingSource):
+class SECSource(SimplePollingInput):
     def next_item(self):
         # Base URL for SEC Edgar
         base_url = "https://www.sec.gov/cgi-bin/browse-edgar"
@@ -58,10 +60,12 @@ class SECSource(SimplePollingSource):
 # Main code for SEC streaming starts here 
 
 # Create flow
-flow = Dataflow("edgar_scraper")
+flow = Dataflow()
 # Poll SEC with GET request every 10 seconds
-filings_stream = op.input("in", flow, SECSource(timedelta(seconds=10)))
+flow.input("in", SECSource(timedelta(seconds=10)))
 
+## flow = Dataflow("edgar_scraper")
+## filings_stream = op.input("in", flow, SECSource(timedelta(seconds=10)))
 
 def parse_atom(xml_data):
     # Parse the XML data
@@ -94,12 +98,16 @@ def parse_atom(xml_data):
     return data
 
 # Parse the XML data from SEC
-processed_stream = op.flat_map("parse_atom", filings_stream, parse_atom)
+flow.flat_map(parse_atom)
+## processed_stream = op.flat_map("parse_atom", filings_stream, parse_atom)
 # op.inspect("processed_stream", processed_stream)
 
+def dedupe_builder():
+    return []
+
 def dedupe(filings, filing):
-    if not filings:
-        filings = []
+    ## if not filings:
+    ##    filings = []
     if filing["id"] in filings:
         return (filings, None)
     else:
@@ -107,14 +115,16 @@ def dedupe(filings, filing):
         return (filings, filing)
 
 # Check for duplicate SEC filings
-deduped_stream = op.stateful_map("dedupe", processed_stream, dedupe)
+flow.stateful_map("dedupe", dedupe_builder, dedupe)
+## deduped_stream = op.stateful_map("dedupe", processed_stream, dedupe)
 # op.inspect("dedupe_stream", deduped_stream)
 
 # Filter out data from index 1?
-deduped_filtered_stream = op.filter_map("remove key", deduped_stream, lambda x: x[1])
+flow.filter_map(lambda x: x[1])
+## deduped_filtered_stream = op.filter_map("remove key", deduped_stream, lambda x: x[1])
 # op.inspect("filt", deduped_filtered_stream)
 
-# Convert JSON string with company tickers to a dataframe
+# Convert JSON string with company tickers to a dataframe  
 cik_to_ticker = read_json("company_tickers.json", orient='index')
 # Set 'cik_str' column as the index of the dataframe instead of the default index of 0,1,2,3...
 cik_to_ticker.set_index(cik_to_ticker['cik_str'], inplace=True)
@@ -158,10 +168,12 @@ def enrich(data, cik_to_tickers):
                 'Host': 'www.sec.gov'
             }
 
+            # HTTP Get to retrieve filing text
             response = requests.get(new_url, headers=headers)
         
             if response.status_code == 200:
                 logger.info("Successfully retrieved filing text")
+                # regex for ticker in SEC filing text
                 pattern = re.compile(r'<issuerTradingSymbol>(.*?)</issuerTradingSymbol>', re.DOTALL)
                 ticker = pattern.findall(response.text)
                 if ticker == []:
@@ -179,7 +191,8 @@ def enrich(data, cik_to_tickers):
     return (ticker, data)
 
 # Retrieve ticker for each SEC filing
-enrich_stream = op.filter_map("enrich", deduped_filtered_stream, lambda x: enrich(x, cik_to_ticker))
+flow.filter_map(lambda x: enrich(x, cik_to_ticker))
+## enrich_stream = op.filter_map("enrich", deduped_filtered_stream, lambda x: enrich(x, cik_to_ticker))
 
 # Convert obj to JSON formatted string
 def serialize(news):
@@ -189,12 +202,15 @@ def serialize(news):
         return ('All', json.dumps(''))
 
 # Convert obj to JSON formatted string
-serialized = op.map("serialize", enrich_stream, serialize)
-op.output("output", serialized, FileSink('sec_out_2.jsonl'))
-op.inspect("filed", serialized)
+flow.map(serialize)
+flow.output("output", FileOutput('sec_out2.jsonl'))
+flow.inspect(print)
+
+## serialized = op.map("serialize", enrich_stream, serialize)
+## op.output("output", serialized, FileSink('sec_out2.jsonl'))
+## op.inspect("filed", serialized)
 
 ## uncomment to write to kafka
-
 # def serialize_k(news)-> KafkaSinkMessage[Dict, Dict]:
 #     return KafkaSinkMessage(
 #         key=json.dumps(news['symbols'][0]),
