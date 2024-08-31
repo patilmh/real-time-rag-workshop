@@ -3,7 +3,7 @@ import logging
 
 from streaming_pipeline import initialize
 from streaming_pipeline.flow import build as flow_builder
-
+from bytewax.dataflow import Dataflow
 
 def build_flow(
     env_file_path: str = ".env",
@@ -11,7 +11,7 @@ def build_flow(
     model_cache_dir: str = None,
     latest_n_days: int = 1,
     debug: bool = False,
-):
+) -> Dataflow:
     """
     Builds a Bytewax flow for batch processing of news data from Alpaca.
 
@@ -42,6 +42,8 @@ def build_flow(
         to_datetime=to_datetime,
         model_cache_dir=model_cache_dir,
         debug=debug,
+        download_needed=False,  # Alpaca news provides content with event
+        date_field="updated_at" # date field for Alpaca news
     )
 
     return flow

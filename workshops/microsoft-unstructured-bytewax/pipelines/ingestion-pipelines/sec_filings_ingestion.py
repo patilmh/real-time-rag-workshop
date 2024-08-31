@@ -110,7 +110,7 @@ def dedupe(filings, filing):
 deduped_stream = op.stateful_map("dedupe", processed_stream, dedupe)
 # op.inspect("dedupe_stream", deduped_stream)
 
-# Filter out data from index 1?
+# Filter the stream to get data from index 1
 deduped_filtered_stream = op.filter_map("remove key", deduped_stream, lambda x: x[1])
 # op.inspect("filt", deduped_filtered_stream)
 
@@ -190,7 +190,7 @@ def serialize(news):
 
 # Convert obj to JSON formatted string
 serialized = op.map("serialize", enrich_stream, serialize)
-op.output("output", serialized, FileSink('sec_out_2.jsonl'))
+op.output("output", serialized, FileSink('data/sec_out.jsonl'))
 op.inspect("filed", serialized)
 
 ## uncomment to write to kafka

@@ -12,16 +12,20 @@ from bytewax.dataflow import Dataflow
 
 from streaming_pipeline import mocked
 from streaming_pipeline.alpaca_batch import AlpacaNewsBatchInput
+from streaming_pipeline.azure_queue import AzureQueueOutput
 ## from streaming_pipeline.alpaca_stream import AlpacaNewsStreamInput
 ## from streaming_pipeline.embeddings import EmbeddingModelSingleton
 ## from streaming_pipeline.models import NewsArticle
 ## from streaming_pipeline.qdrant import QdrantVectorOutput
+from streaming_pipeline.rag_custom_pipeline import ParserFetcherEmbedder
 
 import json
 from bytewax import operators as op
 from bytewax.connectors.files import FileSink
 from bytewax.inputs import Source
 from bytewax.testing import TestingSource
+from bytewax.connectors.stdio import StdOutSink
+from bytewax.outputs import DynamicSink
 
 def build(
     is_batch: bool = False,
@@ -29,6 +33,8 @@ def build(
     to_datetime: Optional[datetime.datetime] = None,
     model_cache_dir: Optional[Path] = None,
     debug: bool = False,
+    download_needed: bool = False,
+    date_field: str = ""
 ) -> Dataflow:
     """
     Builds a dataflow pipeline for processing news articles.
@@ -39,12 +45,15 @@ def build(
         to_datetime (Optional[datetime.datetime]): The end datetime for processing articles.
         model_cache_dir (Optional[Path]): The directory to cache the embedding model.
         debug (bool): Whether to enable debug mode.
+        download_needed (bool): Will the flow need to download using HTTP
+        date_field (str): Date field to be extracted from SEC filing or Alpaca news
 
     Returns:
         Dataflow: The dataflow pipeline for processing news articles.
     """
 
     ## model = EmbeddingModelSingleton(cache_dir=model_cache_dir)
+
     # Do a mock run in streaming and debug mode
     is_input_mocked = debug is True and is_batch is False
 
@@ -67,39 +76,50 @@ def build(
     ## flow.output("output", _build_output(model, in_memory=debug))
     ## flow.output("output", StdOutput())
 
-    # Serialize Dict to JSON str 
+    # Serialize and write data given by Alpaca API to a file
     if debug:
-        op.inspect("news_stream", news_stream)
+        # Serialize Dict to JSON str
         def serialize(news):
             if news['symbols']:
                 return (news['symbols'][0], json.dumps(news))
             else:
                 return ('', json.dumps(news))
         
-        # Serialize Dict to JSON str to send to file or kafka
+        # Serialize Dict to JSON str to send to file or queue
         serialized = op.map("serialize", news_stream, serialize)
-        op.output("output", serialized, FileSink('news_out_2.jsonl'))
-        
-    # else:
-        # # original code for Kafka
-        # def serialize_k(news)-> KafkaSinkMessage[Dict, Dict]:
-        #     return KafkaSinkMessage(
-        #         key=json.dumps(news['symbols'][0]),
-        #         value=json.dumps(news),
-        #     )
 
-        # print(f"Connecting to brokers at: {BROKERS}, Topic: {OUT_TOPIC}")
+        # Write to file in debug mode
+        op.output("fileout", serialized, FileSink('data/news_out.jsonl'))
 
-        # serialized = op.map("serialize", inp, serialize_k)
+    # Process each event to parse out HTML tags, clean, embed
+    # Embedding can be turned off when testing locally with embed_data flag
+    parser_embedder = ParserFetcherEmbedder(metadata_fields=['title', 'headline', \
+                                'form_type','author','symbols','url'],
+                                download_needed=download_needed,
+                                embed_data=False,
+                                date_field=date_field)
 
-        # broker_config = {
-        #     "security_protocol":"SASL_SSL",
-        #     "sasl_mechanism":"SCRAM-SHA-256",
-        #     "sasl_plain_username":"demo",
-        #     "sasl_plain_password":"Qq2EnlzHpzv3RZDAMjZzfZCwrFZyhK"
-        #     }
-        # kop.output("out1", serialized, brokers=BROKERS, topic=OUT_TOPIC)
+    def process_event(event):
+        """Wrapper to handle the processing of each event."""
+        if event:
+            dict_document = parser_embedder.run(event)
+            return dict_document
+        return None
+
+    # Parse out HTML tags, clean, embed to populate Azure search index
+    extract_html = op.filter_map("prep_data", news_stream, process_event)
+
+    # Print out data extracted from Alpaca news in debug mode
+    if debug:
+        # op.inspect("insp_out", extract_html)
+        op.output("std_out", extract_html, StdOutSink())
     
+    # Write to Azure Search Service
+    # op.output("az_out", extract_html, AzureSearchSink())
+
+    # Write to Azure Queue Storage - this might only be needed for SEC filings
+    # op.output("q_out", serialized, _build_q_output())
+        
     return flow
 
 # Get news using Alpaca API for given number of days
@@ -124,6 +144,8 @@ def _build_input(
     # else:
     #     return AlpacaNewsStreamInput(tickers=["*"])
 
+def _build_q_output() -> DynamicSink:
+    return AzureQueueOutput()
 
 # def _build_output(model: EmbeddingModelSingleton, in_memory: bool = False) -> Output:
 #     if in_memory:
