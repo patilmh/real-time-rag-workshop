@@ -225,7 +225,7 @@ class AlpacaNewsBatchClient:
             "Apca-Api-Secret-Key": self._api_secret,
         }
 
-        # Look at all the parameters here: https://alpaca.markets/docs/api-references/market-data-api/news-data/historical/
+        # Look at all the parameters here: https://docs.alpaca.markets/reference/news-3
         # or here: https://github.com/alpacahq/alpaca-py/blob/master/alpaca/data/requests.py#L357
         params = {
             "start": self._from_datetime.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -249,7 +249,7 @@ class AlpacaNewsBatchClient:
             next_page_token = news_json.get("next_page_token", None)
 
         else:
-            logger.error("Request failed with status code:", response.status_code)
+            logger.error(f"Request failed with status code: {response.status_code}")
 
         self._page_token = next_page_token
 

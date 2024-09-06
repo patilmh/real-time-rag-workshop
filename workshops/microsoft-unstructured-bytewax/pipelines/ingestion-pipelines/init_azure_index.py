@@ -77,8 +77,8 @@ vector_search = VectorSearch(
     ],   
 )  
 
-endpoint = os.getenv("AZURE_SEARCH_SERVICE_ENDPOINT")
-key = os.getenv("AZURE_SEARCH_ADMIN_KEY")  
+endpoint = os.getenv("AZURE_AI_SEARCH_SERVICE_ENDPOINT")
+key = os.getenv("AZURE_AI_SEARCH_API_KEY")  
 credential = AzureKeyCredential(key)
 index_client = SearchIndexClient(endpoint=endpoint, credential=credential)
 

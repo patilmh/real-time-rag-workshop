@@ -22,9 +22,6 @@ API_KEY = os.getenv("ALPACA_API_KEY")
 API_SECRET = os.getenv("ALPACA_SECRET")
 ticker_list = ["*"]
 
-BROKERS = os.getenv("BROKER_ADDRESS")
-OUT_TOPIC = os.getenv("NEWS_TOPIC")
-
 # Creating an object 
 logger=logging.getLogger() 
 
@@ -117,26 +114,7 @@ flow.output("output", FileOutput('news_out_2.jsonl'))
 
 # original code for file sink
 # serialized = op.map("serialize", inp, serialize)
-# op.output("output", serialized, FileSink('news_out_2.jsonl'))
-
-# original code for Kafka
-# def serialize_k(news)-> KafkaSinkMessage[Dict, Dict]:
-#     return KafkaSinkMessage(
-#         key=json.dumps(news['symbols'][0]),
-#         value=json.dumps(news),
-#     )
-
-# print(f"Connecting to brokers at: {BROKERS}, Topic: {OUT_TOPIC}")
-
-# serialized = op.map("serialize", inp, serialize_k)
-
-# broker_config = {
-#     "security_protocol":"SASL_SSL",
-#     "sasl_mechanism":"SCRAM-SHA-256",
-#     "sasl_plain_username":"demo",
-#     "sasl_plain_password":"Qq2EnlzHpzv3RZDAMjZzfZCwrFZyhK"
-#     }
-# kop.output("out1", serialized, brokers=BROKERS, topic=OUT_TOPIC)
+# op.output("output", serialized, FileSink('data/news_out.jsonl'))
 
 # python command
 # python -m bytewax.run news_ingestion.py

@@ -41,8 +41,12 @@ def test_flow(
     deserialize_data = op.map("deserialize", input_data, safe_deserialize)
     extract_html = op.filter_map("prep_data", deserialize_data, process_event)
 
-    # op.inspect("insp_out", extract_html)
-    op.output("stdout", extract_html, StdOutSink())
+    # Print out data extracted from Alpaca news in debug mode
+    if debug:
+        # op.inspect("insp_out", extract_html)
+        op.output("stdout", extract_html, StdOutSink())
+
+    # Write to Azure Search Service
     # op.output("az_out", extract_html, AzureSearchSink())
 
     return flow

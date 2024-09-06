@@ -12,7 +12,6 @@ from bytewax.outputs import StatelessSinkPartition, DynamicSink
 
 from dotenv import load_dotenv
 load_dotenv(".env")
-search_api_key = os.getenv("AZURE_SEARCH_ADMIN_KEY")
 
 from bytewax import inputs
 
@@ -78,10 +77,12 @@ class SimulationSource(FileSource):
 class _AzureSearchPartition(StatelessSinkPartition[Any]):
     @override
     def write_batch(self, dictionary) -> None:
-        index_name = "bytewax-index"
         search_api_version = '2024-07-01'
-        azure_search_service = os.getenv("AZURE_SEARCH_SERVICE")
+        index_name = os.getenv("AZURE_AI_SEARCH_INDEX_NAME")
+        search_api_key = os.getenv("AZURE_AI_SEARCH_API_KEY")
+        azure_search_service = os.getenv("AZURE_AI_SEARCH_SERVICE_NAME")
         search_endpoint = f'https://{azure_search_service}.search.windows.net/indexes/{index_name}/docs/index?api-version={search_api_version}'  
+        
         headers = {  
             'Content-Type': 'application/json',
             'api-key': search_api_key

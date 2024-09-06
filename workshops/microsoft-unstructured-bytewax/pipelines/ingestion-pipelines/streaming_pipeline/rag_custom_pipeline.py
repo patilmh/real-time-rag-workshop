@@ -17,16 +17,11 @@ from dotenv import load_dotenv
 import os
 
 load_dotenv("../.env")
-unstructured_api_key = os.environ.get("UNSTRUCTURED_API_KEY")
-api_key = os.environ.get("news_api")
-open_ai_key = os.environ.get("OPENAI_API_KEY")
-unstructured = os.environ.get("UNSTRUCTURED")
+UNSTRUCTURED_API_KEY = os.getenv("UNSTRUCTURED_API_KEY")
 
 AZURE_OPENAI_KEY = os.getenv('AZURE_OPENAI_API_KEY')
 AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_ENDPOINT')
 AZURE_OPENAI_EMBEDDING_MODEL = os.getenv('AZURE_OPENAI_EMBEDDING_MODEL')
-
-search_api_key = os.getenv("AZURE_SEARCH_ADMIN_KEY")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -132,7 +127,7 @@ class ParserFetcherEmbedder:
         # Add components
         if(self.download_needed):
             # SEC filings have to be downloaded from EDGAR before indexing
-            parser = UnstructuredParser(unstructured_key=unstructured_api_key,
+            parser = UnstructuredParser(unstructured_key=UNSTRUCTURED_API_KEY,
                                             chunking_strategy="by_page",
                                             strategy="auto",
                                             model="yolox")
@@ -240,35 +235,3 @@ class ParserFetcherEmbedder:
             "vector": embedding
         }
 
-    # def write_to_ai_search(self, dictionary):
-    #     index_name = "bytewax-index"
-    #     search_api_version = '2023-11-01'
-    #     search_endpoint = f'https://bytewax-workshop.search.windows.net/indexes/{index_name}/docs/index?api-version={search_api_version}'  
-    #     headers = {  
-    #         'Content-Type': 'application/json',  
-    #         'api-key': search_api_key  
-    #     }  
-
-    #     # Use the flattened meta directly
-    #     flattened_meta = dictionary['meta']
-        
-    #     # Convert DataFrame to the format expected by Azure Search  
-    #     body = json.dumps({  
-    #         "value": [  
-    #             {  
-    #                 "@search.action": "upload",  
-    #                 "id": dictionary['id'],  
-    #                 "content": dictionary['content'],  
-    #                 "meta": flattened_meta,  # Use flattened meta
-    #                 "date": dictionary['date'],
-    #                 "vector": dictionary['vector']  # Include the generated embeddings  
-    #             } 
-    #         ]  
-    #     })  
-        
-    #     # Upload documents to Azure Search  
-    #     response = requests.post(search_endpoint, 
-    #                              headers=headers, data=body) 
-
-    #     return {"status": "success" if response.status_code == 200 else response.text}
-       

@@ -151,9 +151,4 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 .DS_Store
-workshops/aimakerspace-2024/batch-version/data/news_out.full.jsonl
-workshops/aimakerspace-2024/stream-version/data/news_out.full.jsonl
-workshops/microsoft-unstructured-bytewax/pipelines/ingestion-pipelines/streaming_pipeline/flow_works.py
-workshops/microsoft-unstructured-bytewax/pipelines/ingestion-pipelines/requirements_works.txt
-workshops/microsoft-unstructured-bytewax/pipelines/ingestion-pipelines/news_ingestion_orig.py
-workshops/microsoft-unstructured-bytewax/pipelines/ingestion-pipelines/logging.yaml
+
