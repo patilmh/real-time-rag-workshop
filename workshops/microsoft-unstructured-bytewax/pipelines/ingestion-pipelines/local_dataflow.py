@@ -2,7 +2,7 @@ from bytewax import operators as op
 from bytewax.dataflow import Dataflow
 from bytewax import operators as op
 from bytewax.connectors.stdio import StdOutSink
-from streaming_pipeline.custom_connectors import SimulationSource, AzureSearchSink
+from streaming_pipeline.custom_connectors import SimulationSource, PineconeVectorOutput
 from streaming_pipeline.rag_custom_pipeline import safe_deserialize, ParserFetcherEmbedder
 
 def test_flow(
@@ -22,11 +22,11 @@ def test_flow(
     """
 
     # Process each event to parse out HTML tags, clean, embed
-    parser_embedder = ParserFetcherEmbedder(metadata_fields=['title', 'headline', \
-                                'form_type','author','symbols','url'],
-                                download_needed=download_needed,
-                                embed_data=False,
-                                date_field="updated_at")
+    parser_embedder = ParserFetcherEmbedder(
+        metadata_fields=['title','headline','form_type','symbols','url'],
+        download_needed=download_needed,
+        embed_data=True,
+        date_field="updated_at")
 
     def process_event(event):
         """Wrapper to handle the processing of each event."""
@@ -46,8 +46,8 @@ def test_flow(
         # op.inspect("insp_out", extract_html)
         op.output("stdout", extract_html, StdOutSink())
 
-    # Write to Azure Search Service
-    # op.output("az_out", extract_html, AzureSearchSink())
+    # Write to serverless Pinecone vector database in a test namespace
+    op.output("pc_out", extract_html, PineconeVectorOutput(namespace="test"))
 
     return flow
 

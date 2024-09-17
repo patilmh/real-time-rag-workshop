@@ -3,18 +3,25 @@ from pathlib import Path
 from typing import Callable, List, Dict, Any, Optional, Union
 from datetime import datetime, timedelta, timezone
 import json
+import time
 import os
 
 import requests
 from typing_extensions import override
 from bytewax.connectors.files import FileSource, _FileSourcePartition
 from bytewax.outputs import StatelessSinkPartition, DynamicSink
+from pinecone.grpc import PineconeGRPC as Pinecone
+from pinecone import ServerlessSpec
 
-from dotenv import load_dotenv
-load_dotenv(".env")
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(), override=True)
 
 from bytewax import inputs
+from streaming_pipeline import constants
 
+#
+# Haystack custom connector to read from file for testing locally
+#
 def _get_path_dev(path: Path) -> str:
     return hex(path.stat().st_dev)
 
@@ -74,6 +81,9 @@ class SimulationSource(FileSource):
         assert path == str(self._path), "Can't resume reading from different file"
         return _SimulationSourcePartition(self._path, self._batch_size, resume_state, self._delay)
 
+#
+# Haystack custom connector for writing vectors and metadata to Azure AI search
+#
 class _AzureSearchPartition(StatelessSinkPartition[Any]):
     @override
     def write_batch(self, dictionary) -> None:
@@ -121,6 +131,139 @@ class AzureSearchSink(DynamicSink[Any]):
         self, _step_id: str, _worker_index: int, _worker_count: int
     ) -> _AzureSearchPartition:
         return _AzureSearchPartition()
+
+#
+# Haystack custom connector for writing vectors and metadata to Pinecone
+#  
+class PineconeVectorSink(StatelessSinkPartition[Any]):
+    """
+    A sink that writes document embeddings and metadata to a Pinecone index.
+
+    Args:
+        client (Optional[PineconeGRPC]): The Pinecone client. Defaults to None.
+        index_name (Optional[str]): The name of the index.
+            Defaults to constants.VECTOR_DB_OUTPUT_INDEX_NAME.
+        namespace (Optional[str]): The name of the namespace. Defaults to "".
+    """
+
+    def __init__(
+        self,
+        client: Optional[Pinecone] = None,
+        index_name: Optional[str] = constants.VECTOR_DB_OUTPUT_INDEX_NAME,
+        namespace: Optional[str] = ""
+    ):
+        self._client = client
+        self._index_name = index_name
+        self._index = self._client.Index(index_name)
+        self._namespace = namespace
+
+    @override
+    def write_batch(self, dictionary) -> None:
+        dictionary = dictionary[0]
+        # print(f"metadata type={type(dictionary['metadata'])}")
+        
+        # The upsert operation writes vectors into a namespace. 
+        # If a new value is upserted for an existing vector id, it will overwrite the previous value.
+        response = self._index.upsert(
+            vectors=[
+                {
+                    "id": dictionary['id'],
+                    "metadata": dictionary['metadata'],
+                    # "metadata": json.loads(dictionary['metadata']), # convert metadata to dictionary
+                    "values": dictionary['values']      # Include the generated embeddings  
+                }
+            ],
+            namespace=self._namespace
+        )
+        # print(f"Upsert response={response}")
+
+
+class PineconeVectorOutput(DynamicSink[Any]):
+    """A class representing a Pinecone vector output.
+
+    Args:
+        client (Optional[PineconeGRPC]): The Pinecone client. Defaults to None.
+        index_name (Optional[str]): The name of the index.
+            Defaults to constants.VECTOR_DB_OUTPUT_INDEX_NAME.
+        namespace (Optional[str]): The name of the namespace. Defaults to "".
+    """
+
+    def __init__(
+        self,
+        client: Optional[Pinecone] = None,
+        index_name: Optional[str] = constants.VECTOR_DB_OUTPUT_INDEX_NAME,
+        namespace: Optional[str] = ""
+    ):
+        self._index_name = index_name
+        self._namespace = namespace
+
+        if client:
+            self._client = client
+        else:
+            self._client = build_pinecone_client()
+
+        # Create index if it does not exist
+        if index_name not in self._client.list_indexes().names():
+            self._client.create_index(
+                name=index_name,
+                dimension=int(constants.EMBEDDING_DIMENSIONS),
+                metric="cosine",
+                spec=ServerlessSpec(
+                    cloud='aws',
+                    region='us-east-1'
+                )
+            )
+            # wait for index to be initialized
+            while not self._client.describe_index(index_name).status["ready"]:
+                time.sleep(1)
+
+    @override
+    def build(
+        self, _step_id: str, _worker_index: int, _worker_count: int
+    ) -> PineconeVectorSink:
+        """Builds a PineconeVectorSink object.
+
+        Args:
+            _step_id (str):
+            _worker_index (int): The index of the worker.
+            _worker_count (int): The total number of workers.
+
+        Returns:
+            PineconeVectorSink: A PineconeVectorSink object.
+        """
+
+        return PineconeVectorSink(self._client, self._index_name, self._namespace)
+
+
+def build_pinecone_client(url: Optional[str] = None, api_key: Optional[str] = None):
+    """
+    Builds a Pinecone object with the given URL and API key.
+
+    Args:
+        api_key (Optional[str]): The API key to use for authentication. If not provided,
+            it will be read from the PINECONE_API_KEY environment variable.
+
+    Raises:
+        KeyError: If the PINECONE_API_KEY environment variables are not set
+            and no values are provided as arguments.
+
+    Returns:
+        Pinecone: A Pinecone object connected to the specified Pinecone server.
+    """
+
+    if api_key is None:
+        try:
+            api_key = os.environ["PINECONE_API_KEY"]
+        except KeyError:
+            raise KeyError(
+                "PINECONE_API_KEY must be set as environment variable or manually passed as an argument."
+            )
+        
+    # Initilize and authenticate the Pinecone client
+    client = Pinecone(api_key=api_key)
+
+    return client
+
 
 ## Usage Example
 # from simulated_connector import SimulationSource

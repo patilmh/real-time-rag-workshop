@@ -94,7 +94,7 @@ def build(
     # Process each event to parse out HTML tags, clean, embed
     # Embedding can be turned off when testing locally with embed_data flag
     parser_embedder = ParserFetcherEmbedder(metadata_fields=['title', 'headline', \
-                                'form_type','author','symbols','url'],
+                                'form_type','symbols','url'],
                                 download_needed=download_needed,
                                 embed_data=False,
                                 date_field=date_field)

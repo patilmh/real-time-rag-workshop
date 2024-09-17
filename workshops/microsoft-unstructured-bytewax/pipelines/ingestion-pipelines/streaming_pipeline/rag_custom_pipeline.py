@@ -1,27 +1,27 @@
 from haystack import Pipeline
-from haystack.components.embedders import AzureOpenAIDocumentEmbedder
+# from haystack.components.embedders import AzureOpenAIDocumentEmbedder
 from haystack.components.preprocessors import DocumentCleaner
+from haystack.components.embedders import OpenAIDocumentEmbedder
 from pathlib import Path
 from haystack.utils import Secret
 
 from streaming_pipeline.unstructured_component import UnstructuredParser
 from streaming_pipeline.parser_component import CustomParser
+from streaming_pipeline import constants
 import logging
-import requests
 from haystack import component, Document
 from typing import Any, Dict, List, Optional, Union
 from haystack.dataclasses import ByteStream
 
 import json
-from dotenv import load_dotenv
+import sys
 import os
+from dateutil import parser
+from datetime import datetime
 
-load_dotenv("../.env")
-UNSTRUCTURED_API_KEY = os.getenv("UNSTRUCTURED_API_KEY")
-
-AZURE_OPENAI_KEY = os.getenv('AZURE_OPENAI_API_KEY')
-AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_ENDPOINT')
-AZURE_OPENAI_EMBEDDING_MODEL = os.getenv('AZURE_OPENAI_EMBEDDING_MODEL')
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(), override=True)
+# load_dotenv("../.env")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -102,12 +102,29 @@ class ParserFetcherEmbedder:
         self.metadata_fields = metadata_fields or []
         self.date_field = date_field or ""
         
+        # Get environment variables
+        # AZURE_OPENAI_KEY = os.getenv('AZURE_OPENAI_API_KEY')
+        # AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_ENDPOINT')
+        # AZURE_OPENAI_EMBEDDING_MODEL = os.getenv('AZURE_OPENAI_EMBEDDING_MODEL')
+        UNSTRUCTURED_API_KEY = os.getenv("UNSTRUCTURED_API_KEY")
+
+        # Create components
+        if(self.download_needed):
+            # SEC filings have to be downloaded from EDGAR before indexing
+            document_parser = UnstructuredParser(unstructured_key=UNSTRUCTURED_API_KEY,
+                                            chunking_strategy="by_page",
+                                            strategy="auto",
+                                            model="yolox")
+        else:
+            # Alpaca API call gives title, summary, content. So no HTTP download is needed.
+            document_parser = CustomParser(download_needed=download_needed)
+
         regex_pattern = (
             r'<.*?>'  # HTML tags
             r'|\t'  # Tabs
             r'|\n+'  # Newlines
             r'|&nbsp;'  # Non-breaking spaces
-            r'|[^a-zA-Z0-9\s]'  # Any non-alphanumeric character (excluding whitespace)
+            r'|[^a-zA-Z0-9.,\'\s]'  # Any non-alphanumeric character (excluding whitespace)
         )
         document_cleaner = DocumentCleaner(
                             remove_empty_lines=True,
@@ -117,27 +134,19 @@ class ParserFetcherEmbedder:
                             remove_regex=regex_pattern
                         )
 
-        document_embedder = AzureOpenAIDocumentEmbedder(azure_endpoint=AZURE_OPENAI_ENDPOINT,
-                                                        api_key=Secret.from_token(AZURE_OPENAI_KEY),
-                                                        azure_deployment=AZURE_OPENAI_EMBEDDING_MODEL) 
+        document_embedder = OpenAIDocumentEmbedder(model=constants.OPENAI_EMBEDDING_MODEL, 
+                                                   dimensions=constants.EMBEDDING_DIMENSIONS)
+        # document_embedder = AzureOpenAIDocumentEmbedder(azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        #                                                 api_key=Secret.from_token(AZURE_OPENAI_KEY),
+        #                                                 azure_deployment=AZURE_OPENAI_EMBEDDING_MODEL) 
 
         # Initialize Haystack pipeline
         self.pipeline = Pipeline()
 
-        # Add components
-        if(self.download_needed):
-            # SEC filings have to be downloaded from EDGAR before indexing
-            parser = UnstructuredParser(unstructured_key=UNSTRUCTURED_API_KEY,
-                                            chunking_strategy="by_page",
-                                            strategy="auto",
-                                            model="yolox")
-        else:
-            # Alpaca API call gives title, summary, content. So no HTTP download is needed.
-            parser = CustomParser(download_needed=download_needed)
-
-        self.pipeline.add_component("parser", parser)
+        # Add components to pipeline
+        self.pipeline.add_component("parser", document_parser)
         self.pipeline.add_component("cleaner", document_cleaner)
-
+    
         # Connect components
         self.pipeline.connect("parser", "cleaner")
         if(self.embed_data):
@@ -154,7 +163,7 @@ class ParserFetcherEmbedder:
         """
 
         # Event type here is usually <class 'dict'>
-        # logger.info(f"type: {type(event)}, event: {event}")
+        # logger.info(f"type={type(event)}, event={event}")
 
         # Extract URL and modify it if necessary
         url = event.get("url")
@@ -174,7 +183,7 @@ class ParserFetcherEmbedder:
             logger.error(f"Error running pipeline for URL {url}: {e}")
             raise
 
-        logger.info(f"doc: {doc}")
+        logger.info(f"doc={doc}")
         if(self.embed_data):
             # Get embedding data if the embedder was run
             document_obj = doc['embedder']['documents'][0]
@@ -186,52 +195,54 @@ class ParserFetcherEmbedder:
                 embedding = embedding.tolist()
 
             # Safely access the embedding metadata
-            embedding_metadata = doc.get('embedder', {}).get('meta', {})
-            metadata.update(embedding_metadata)
+            # embedding_metadata = doc.get('embedder', {}).get('meta', {})
+            # metadata.update(embedding_metadata)
         else:
             # Get cleaned data if the embedder was not run
             document_obj = doc['cleaner']['documents'][0]
 
-        # Flatten the metadata if it is nested
-        metadata = flatten_meta(metadata)
-        logger.info(f"updated metadata: {metadata}")
+        # Insert Alpaca news or filing text in metadata if needed
+        metadata["content"] = document_obj.content,
 
         # Extract date from appropriate field for SEC filing or Alpaca news
         date = ""
         if self.date_field:
             date = event.get(self.date_field)
-            logger.info(f"self.date_field: {self.date_field}, date: {date}")
+            metadata["date"] = date
+            # store epoch since date string cannot be used filter in Pinecone
+            _datetime = parser.parse(date)
+            metadata["epoch"] = int(_datetime.timestamp())
+            # logger.info(f"self.date_field={self.date_field}, date={date}")
+
+        # Flatten the metadata if it is nested
+        metadata = flatten_meta(metadata)
+        logger.info(f"updated metadata={metadata}")
 
         # Create dictionary with id, content, metadata, date
         dictionary = {
             "id": document_obj.id,
-            "content": document_obj.content,
-            "meta": json.dumps(metadata),  # Serialize the flattened meta to a JSON string
-            "date": date
+            "metadata": metadata
+            #"metadata": json.dumps(metadata),  # Serialize the flattened meta to a JSON string
         }
 
         # Add embedding to dictionary if the embedder was run
         if(self.embed_data):
-            dictionary["vector"] = embedding
+            dictionary["values"] = embedding
 
         return dictionary
     
-    def document_to_dict(self, document: Document) -> Dict:
-        """
-        Convert a Haystack Document object to a dictionary.
-        """
-        # Ensure embedding is converted to a list, if it is a NumPy array
-        embedding = document.embedding
-        if embedding is not None and hasattr(embedding, 'tolist'):
-            embedding = embedding.tolist()
-        
-        flattened_meta = flatten_meta(document.meta)
-        
-        return {
-            "id": document.id,
-            "content": document.content,
-            "meta": json.dumps(flattened_meta),  # Serialize the flattened meta to a JSON string
-            "date": "",
-            "vector": embedding
-        }
+    # def document_to_dict(self, document: Document) -> Dict:
+    #     """
+    #     Convert a Haystack Document object to a dictionary.
+    #     """
+    #     # Ensure embedding is converted to a list, if it is a NumPy array
+    #     embedding = document.embedding
+    #     if embedding is not None and hasattr(embedding, 'tolist'):
+    #         embedding = embedding.tolist()
+    #     flattened_meta = flatten_meta(document.meta)
+    #     return {
+    #         "id": document.id,
+    #         "metadata": json.dumps(flattened_meta),  # Serialize the flattened meta to a JSON string
+    #         "values": embedding,
+    #     }
 

@@ -59,6 +59,6 @@ class CustomParser:
         text = cleaned_headline + " " + cleaned_summary + " " + cleaned_content
         documents.append(Document(content=text, id=doc_id))
 
-        # print(f"documents: {documents}")
+        # logger.info(f"documents: {documents}")
 
         return {"documents": documents}
