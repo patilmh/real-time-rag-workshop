@@ -100,7 +100,7 @@ def build(
     parser_embedder = ParserFetcherEmbedder(
         metadata_fields=['title','headline','form_type','symbols','url'],
         download_needed=download_needed,
-        embed_data=False,
+        embed_data=True,
         date_field=date_field
     )
 
@@ -128,10 +128,10 @@ def build(
     batched_stream = op.collect(
         "batch_items", keyed_stream, max_size=100, timeout=timedelta(seconds=120)
     )
-    op.inspect("ins_batch", batched_stream)
+    # op.inspect("ins_batch", batched_stream)
 
     # Write to serverless Pinecone vector database in the default namespace
-    # op.output("pc_out", extract_html, PineconeVectorOutput(namespace=""))
+    op.output("pc_out", batched_stream, PineconeVectorOutput(namespace=""))
 
     # Write to Azure Queue Storage - this might only be needed for SEC filings
     ## op.output("q_out", serialized, _build_q_output())
