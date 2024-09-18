@@ -10,16 +10,18 @@ from bytewax.dataflow import Dataflow
 ## from pydantic import parse_obj_as
 ## from qdrant_client import QdrantClient
 
-from streaming_pipeline import mocked
-from streaming_pipeline.alpaca_batch import AlpacaNewsBatchInput
-from streaming_pipeline.azure_queue import AzureQueueOutput
 ## from streaming_pipeline.alpaca_stream import AlpacaNewsStreamInput
 ## from streaming_pipeline.embeddings import EmbeddingModelSingleton
 ## from streaming_pipeline.models import NewsArticle
 ## from streaming_pipeline.qdrant import QdrantVectorOutput
+## from streaming_pipeline.azure_queue import AzureQueueOutput
+from streaming_pipeline import mocked
+from streaming_pipeline.alpaca_batch import AlpacaNewsBatchInput
+from streaming_pipeline.custom_connectors import PineconeVectorOutput
 from streaming_pipeline.rag_custom_pipeline import ParserFetcherEmbedder
 
 import json
+from datetime import timedelta
 from bytewax import operators as op
 from bytewax.connectors.files import FileSink
 from bytewax.inputs import Source
@@ -63,7 +65,8 @@ def build(
     news_stream = op.input("input", flow, 
                            _build_input(
                                is_batch, from_datetime, to_datetime, is_input_mocked=is_input_mocked
-                               ))
+                            )
+    )
 
     # Type checking and type casting
     ## flow.flat_map(lambda messages: TypeAdapter(List[NewsArticle]).validate_python(messages))
@@ -93,11 +96,13 @@ def build(
 
     # Process each event to parse out HTML tags, clean, embed
     # Embedding can be turned off when testing locally with embed_data flag
-    parser_embedder = ParserFetcherEmbedder(metadata_fields=['title', 'headline', \
-                                'form_type','symbols','url'],
-                                download_needed=download_needed,
-                                embed_data=False,
-                                date_field=date_field)
+    # Process each event to parse out HTML tags, clean, embed
+    parser_embedder = ParserFetcherEmbedder(
+        metadata_fields=['title','headline','form_type','symbols','url'],
+        download_needed=download_needed,
+        embed_data=False,
+        date_field=date_field
+    )
 
     def process_event(event):
         """Wrapper to handle the processing of each event."""
@@ -106,19 +111,30 @@ def build(
             return dict_document
         return None
 
-    # Parse out HTML tags, clean, embed to populate Azure search index
-    extract_html = op.filter_map("prep_data", news_stream, process_event)
+    # Parse out HTML tags, clean, embed the news data
+    extract_html = op.filter_map("parse_embed", news_stream, process_event)
 
     # Print out data extracted from Alpaca news in debug mode
     if debug:
         # op.inspect("insp_out", extract_html)
         op.output("std_out", extract_html, StdOutSink())
     
-    # Write to Azure Search Service
-    # op.output("az_out", extract_html, AzureSearchSink())
+    # Pinecone recommendation is to upsert large number of vectors in batches
+    # collect or batch operation needs a keyed stream
+    keyed_stream = op.key_on("key", extract_html, lambda _: "ALL")
+
+    # Batch for either 5 elements, or 10 second. This should emit at
+    # the size limit since we are giving a large timeout.
+    batched_stream = op.collect(
+        "batch_items", keyed_stream, max_size=100, timeout=timedelta(seconds=120)
+    )
+    op.inspect("ins_batch", batched_stream)
+
+    # Write to serverless Pinecone vector database in the default namespace
+    # op.output("pc_out", extract_html, PineconeVectorOutput(namespace=""))
 
     # Write to Azure Queue Storage - this might only be needed for SEC filings
-    # op.output("q_out", serialized, _build_q_output())
+    ## op.output("q_out", serialized, _build_q_output())
         
     return flow
 
@@ -141,11 +157,11 @@ def _build_input(
         return AlpacaNewsBatchInput(
             from_datetime=from_datetime, to_datetime=to_datetime, tickers=["*"]
         )
-    # else:
-    #     return AlpacaNewsStreamInput(tickers=["*"])
+    ## else:
+    ##     return AlpacaNewsStreamInput(tickers=["*"])
 
-def _build_q_output() -> DynamicSink:
-    return AzureQueueOutput()
+# def _build_q_output() -> DynamicSink:
+#     return AzureQueueOutput()
 
 # def _build_output(model: EmbeddingModelSingleton, in_memory: bool = False) -> Output:
 #     if in_memory:

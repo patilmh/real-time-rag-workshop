@@ -21,7 +21,6 @@ from datetime import datetime
 
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv(), override=True)
-# load_dotenv("../.env")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -88,7 +87,13 @@ def safe_deserialize(data):
 
 
 class ParserFetcherEmbedder:
-    def __init__(self, metadata_fields=None, download_needed=False, embed_data=False, date_field=""):
+    def __init__(self, 
+                 metadata_fields=None,
+                 debug=False,
+                 download_needed=False, 
+                 embed_data=False, 
+                 date_field=""
+    ):
         """
         Initialize the JSONLReader with optional metadata fields and a link keyword.
         
@@ -98,6 +103,7 @@ class ParserFetcherEmbedder:
         :param date_field: Date field to be extracted from SEC filing or Alpaca news
         """
         self.download_needed = download_needed
+        self.debug = debug
         self.embed_data = embed_data
         self.metadata_fields = metadata_fields or []
         self.date_field = date_field or ""
@@ -163,7 +169,8 @@ class ParserFetcherEmbedder:
         """
 
         # Event type here is usually <class 'dict'>
-        # logger.info(f"type={type(event)}, event={event}")
+        # if(self.debug):
+        #     logger.info(f"type={type(event)}, event={event}")
 
         # Extract URL and modify it if necessary
         url = event.get("url")
@@ -183,7 +190,9 @@ class ParserFetcherEmbedder:
             logger.error(f"Error running pipeline for URL {url}: {e}")
             raise
 
-        logger.info(f"doc={doc}")
+        if(self.debug):
+            logger.info(f"doc={doc}")
+            
         if(self.embed_data):
             # Get embedding data if the embedder was run
             document_obj = doc['embedder']['documents'][0]
@@ -212,11 +221,11 @@ class ParserFetcherEmbedder:
             # store epoch since date string cannot be used filter in Pinecone
             _datetime = parser.parse(date)
             metadata["epoch"] = int(_datetime.timestamp())
-            # logger.info(f"self.date_field={self.date_field}, date={date}")
 
         # Flatten the metadata if it is nested
         metadata = flatten_meta(metadata)
-        logger.info(f"updated metadata={metadata}")
+        if(self.debug):
+            logger.info(f"updated metadata={metadata}")
 
         # Create dictionary with id, content, metadata, date
         dictionary = {

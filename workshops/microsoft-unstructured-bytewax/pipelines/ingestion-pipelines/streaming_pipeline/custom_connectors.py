@@ -10,14 +10,18 @@ import requests
 from typing_extensions import override
 from bytewax.connectors.files import FileSource, _FileSourcePartition
 from bytewax.outputs import StatelessSinkPartition, DynamicSink
+from bytewax import inputs
 from pinecone.grpc import PineconeGRPC as Pinecone
 from pinecone import ServerlessSpec
+import logging
+from streaming_pipeline import constants
 
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv(), override=True)
 
-from bytewax import inputs
-from streaming_pipeline import constants
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 #
 # Haystack custom connector to read from file for testing locally
@@ -158,24 +162,18 @@ class PineconeVectorSink(StatelessSinkPartition[Any]):
         self._namespace = namespace
 
     @override
-    def write_batch(self, dictionary) -> None:
-        dictionary = dictionary[0]
-        # print(f"metadata type={type(dictionary['metadata'])}")
+    def write_batch(self, key__batch) -> None:
+        # key__batch type is List[tuple], with only 1 tuple containing ('ALL', List[dict])
+        key__batch = key__batch[0]
+        key, batch = key__batch
         
-        # The upsert operation writes vectors into a namespace. 
-        # If a new value is upserted for an existing vector id, it will overwrite the previous value.
+        # The upsert operation writes vectors into a namespace. If a new value is upserted
+        # for an existing vector id, it will overwrite the previous value.
         response = self._index.upsert(
-            vectors=[
-                {
-                    "id": dictionary['id'],
-                    "metadata": dictionary['metadata'],
-                    # "metadata": json.loads(dictionary['metadata']), # convert metadata to dictionary
-                    "values": dictionary['values']      # Include the generated embeddings  
-                }
-            ],
+            vectors=batch,
             namespace=self._namespace
         )
-        # print(f"Upsert response={response}")
+        logger.info(f"Upsert response={response}")
 
 
 class PineconeVectorOutput(DynamicSink[Any]):
