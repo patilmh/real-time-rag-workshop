@@ -18,4 +18,4 @@ markdownify
 haystack-ai
 unstructured-fileconverter-haystack
 unstructured-client
-"pinecone-client[grpc]"
+pinecone-client[grpc]
