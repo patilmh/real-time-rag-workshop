@@ -16,9 +16,6 @@ from pinecone import ServerlessSpec
 import logging
 from streaming_pipeline import constants
 
-from dotenv import load_dotenv, find_dotenv
-load_dotenv(find_dotenv(), override=True)
-
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

@@ -22,11 +22,11 @@ from haystack.components.embedders import AzureOpenAIDocumentEmbedder
 from haystack import component, Document
 from typing import Any, Dict, List, Optional, Union
 from haystack.dataclasses import ByteStream
-from dotenv import load_dotenv
 import os
 import json 
 
-load_dotenv(".env")
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(), override=True)
 open_ai_key = os.environ.get("OPENAI_API_KEY")
 
 def safe_deserialize(data):

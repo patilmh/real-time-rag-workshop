@@ -4,7 +4,6 @@ from pathlib import Path
 import requests
 import time
 import uuid
-from dotenv import load_dotenv
 from haystack import Document, component
 from unstructured_client import UnstructuredClient
 from unstructured_client.models import shared
@@ -15,7 +14,6 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-load_dotenv(".env")
 
 @component
 class UnstructuredParser:

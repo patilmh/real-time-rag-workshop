@@ -19,9 +19,6 @@ import os
 from dateutil import parser
 from datetime import datetime
 
-from dotenv import load_dotenv, find_dotenv
-load_dotenv(find_dotenv(), override=True)
-
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -109,9 +106,6 @@ class ParserFetcherEmbedder:
         self.date_field = date_field or ""
         
         # Get environment variables
-        # AZURE_OPENAI_KEY = os.getenv('AZURE_OPENAI_API_KEY')
-        # AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_ENDPOINT')
-        # AZURE_OPENAI_EMBEDDING_MODEL = os.getenv('AZURE_OPENAI_EMBEDDING_MODEL')
         UNSTRUCTURED_API_KEY = os.getenv("UNSTRUCTURED_API_KEY")
 
         # Create components
@@ -140,8 +134,10 @@ class ParserFetcherEmbedder:
                             remove_regex=regex_pattern
                         )
 
-        document_embedder = OpenAIDocumentEmbedder(model=constants.OPENAI_EMBEDDING_MODEL, 
-                                                   dimensions=constants.EMBEDDING_DIMENSIONS)
+        OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+        document_embedder = OpenAIDocumentEmbedder(api_key=Secret.from_env_var("OPENAI_API_KEY"),
+                                                    model=constants.OPENAI_EMBEDDING_MODEL, 
+                                                    dimensions=constants.EMBEDDING_DIMENSIONS)
         # document_embedder = AzureOpenAIDocumentEmbedder(azure_endpoint=AZURE_OPENAI_ENDPOINT,
         #                                                 api_key=Secret.from_token(AZURE_OPENAI_KEY),
         #                                                 azure_deployment=AZURE_OPENAI_EMBEDDING_MODEL) 
