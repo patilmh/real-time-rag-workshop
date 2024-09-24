@@ -14,9 +14,9 @@ app = func.FunctionApp()
 
 @app.function_name(name="mytimer")
 @app.timer_trigger(schedule="0 0 0 * * *", 
-              arg_name="mytimer",
-              run_on_startup=True) 
-def timer_function(mytimer: func.TimerRequest) -> None:
+                    arg_name="mytimer",
+                    run_on_startup=False)
+def alpaca_timer_function(mytimer: func.TimerRequest) -> None:
     utc_timestamp = datetime.now(timezone.utc)
     logging.info('Python timer trigger function ran at %s', utc_timestamp)
 
@@ -100,7 +100,7 @@ def timer_function(mytimer: func.TimerRequest) -> None:
 
 ###################################################################
 # Azure durable function with eternal orchestration
-# DOES NOT WORK
+# DOES NOT WORK - Timer does not stop once started
 
 # import azure.functions as func
 # import azure.durable_functions as df
