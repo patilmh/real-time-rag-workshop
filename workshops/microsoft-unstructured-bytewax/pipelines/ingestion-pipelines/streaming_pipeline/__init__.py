@@ -1,6 +1,8 @@
 import logging
 import logging.config
 from pathlib import Path
+import os
+import tempfile
 
 import yaml
 from dotenv import find_dotenv, load_dotenv
@@ -41,8 +43,10 @@ def initialize_logger(
     """Initialize logger from a YAML config file."""
 
     # Create logs directory.
-    config_path_parent = Path(config_path).parent
-    logs_dir = config_path_parent / logs_dir_name
+    # Azure functions only allows dir/files to be created in system temp dir
+    logs_dir_name = os.path.join(tempfile.gettempdir(), logs_dir_name)
+    # logging.info(f"logs_dir_name={logs_dir_name}")
+    logs_dir = Path(logs_dir_name)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
     with open(config_path, "rt") as f:
@@ -50,5 +54,19 @@ def initialize_logger(
 
     # Make sure that existing logger will still work.
     config["disable_existing_loggers"] = False
+
+    def log_file_path(handler_name: str):
+        """
+        Get filename from yaml and attach system temp dir path to it.
+        """
+        file_name = config["handlers"][handler_name]["filename"]
+        file_name_path = os.path.join(logs_dir_name, file_name)
+        config["handlers"][handler_name]["filename"] = file_name_path
+        # logging.info(f"filename={file_name_path}")
+        return None
+    
+    # Attach system temp dir path to INFO and ERROR log file names
+    log_file_path("file_info")
+    log_file_path("file_error")
 
     logging.config.dictConfig(config)

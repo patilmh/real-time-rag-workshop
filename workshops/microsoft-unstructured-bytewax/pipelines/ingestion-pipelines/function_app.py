@@ -1,30 +1,31 @@
 ###################################################################
-# Azure function with timer trigger - run at 0:00 UTC everyday
+# Azure function with timer trigger - run every 3 hours
 
 from datetime import datetime, timezone
 import logging
 import azure.functions as func
 
+# from local_dataflow import test_flow
 from run_batch import build_flow
-from local_dataflow import test_flow
-from bytewax.dataflow import Dataflow
 from bytewax.testing import run_main
 
 app = func.FunctionApp()
 
 @app.function_name(name="mytimer")
-@app.timer_trigger(schedule="0 0 0 * * *", 
+@app.timer_trigger(schedule="0 0 0/3 * * *", 
                     arg_name="mytimer",
                     run_on_startup=False)
 def alpaca_timer_function(mytimer: func.TimerRequest) -> None:
     utc_timestamp = datetime.now(timezone.utc)
     logging.info('Python timer trigger function ran at %s', utc_timestamp)
 
-    # Workaround for executing bytewax because 
-    # 'python -m bytewax.run' does not work inside a Azure function
-    # flow = test_flow(debug=True)    
-    flow = build_flow(latest_n_days=1, debug=False)
+    ## Workaround for executing bytewax because 
+    ## 'python -m bytewax.run' does not work inside a Azure function
+    # flow = test_flow(debug=False)
+    flow = build_flow(latest_n_days=3/24, debug=False)
     run_main(flow)
+
+    logging.info(f"Python timer trigger function ending")
 
     if mytimer.past_due:
         logging.info('The timer is past due!')

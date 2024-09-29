@@ -1,3 +1,4 @@
+# Unused code - causes problems in Azure Functions for whatever reason
 financial_news = [
     [
         {

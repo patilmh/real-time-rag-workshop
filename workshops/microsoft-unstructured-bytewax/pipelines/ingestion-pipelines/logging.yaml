@@ -10,16 +10,18 @@ handlers:
         formatter: simple
         stream: ext://sys.stdout
     file_info:
-        class: logging.FileHandler
+        class: logging.handlers.RotatingFileHandler
         formatter: simple
         level: INFO
-        filename: logs/info.log
+        filename: info.log
+        maxBytes: 52428800
         mode: 'a'
     file_error:
-        class: logging.FileHandler
+        class: logging.handlers.RotatingFileHandler
         formatter: simple
         level: ERROR
-        filename: logs/error.log
+        filename: error.log
+        maxBytes: 10485760
         mode: 'a'
 root:
     level: INFO
